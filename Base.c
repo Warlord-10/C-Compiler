@@ -4,11 +4,18 @@
 
 
 // Defining Global Variables
+char* FILE_NAME;                                // File name which is to be compiled
+int ERRORS = 0;
+int DEBUG = 0;
+
 Token* BASE_TOKEN;                              // Parent Node of the lexemes
 AST_Node* BASE_AST_NODE;                        // Parent Node of the AST
+
 GlobalTable* GLOBAL_TABLE_HEAD[GLOBAL_LEN];     // Head pointer to Global symbol table
-char* FILE_NAME;                                // File name which is to be compiled
-int ERRORS;
+TableData* GLOBAL_SYMBOL_TABLE;                  // Hash table 2.0
+
+StackElement* FUNCTION_STACK;
+StackElement* STACK_TOP;
 
 // Gives a new empty token for the Lexer
 Token* GiveTok(){
@@ -32,12 +39,15 @@ AST_Node* GiveNode(){
     Node->SIBLING = NULL;
     return Node;
 }
-void TakeNode(AST_Node* n){
-    if(n->SIBLING != NULL){
-        TakeNode(n->SIBLING);
+void TakeNode(AST_Node** n){
+    if((*n)->SIBLING != NULL){
+        TakeNode(&((*n)->SIBLING));
     }
-    free(n);
+    free(*n);   // The pointer still exists but points to empty location
+    *n = NULL;  // Pointer points to NULL
 }
+
+
 void gapfill(int indent){
     for(int i=0;i<indent;i++){
         printf(" ");
@@ -266,14 +276,131 @@ void ShowGlobal(){
 
 
 
+// Hash 2.0
+TableData* createTableInstance() {
+    TableData* temp = (TableData*)malloc(sizeof(TableData));
+    if (temp != NULL) {
+        // Initialize members as needed
+        temp->NAME = NULL;  
+        temp->ADDR = NULL;
+        temp->NEXT = NULL;
+
+        // Initialize TABLE array elements to NULL
+        for (int i = 0; i < GLOBAL_LEN; ++i) {
+            temp->TABLE[i] = NULL;
+        }
+    }
+    return temp;
+}
+
+void PutTableInstance(char* name, AST_Node* nodeAddr, TableData* tableAddr){
+    printf("Putting Table: %s, %d, %d \n", name, nodeAddr, tableAddr);
+    TableData* dataToInsert = createTableInstance();
+    dataToInsert->NAME = malloc(strlen(name)+1);
+    
+    strcpy(dataToInsert->NAME, name);
+    dataToInsert->ADDR = nodeAddr;
+    dataToInsert->NEXT = NULL;
+    int offset = 0;
+
+    // Data is inserted into the program(global) table
+    if(tableAddr == NULL){
+        offset = HashFunction(name, GLOBAL_LEN);
+        // If there's no data at this index, add data directly
+        if(GLOBAL_SYMBOL_TABLE->TABLE[offset] == NULL) GLOBAL_SYMBOL_TABLE->TABLE[offset] = dataToInsert;
+        else{
+            // If there's already data at this index, add data to the end of the linked list
+            TableData* temp = GLOBAL_SYMBOL_TABLE->TABLE[offset];
+            while(temp->NEXT){
+                temp = temp->NEXT;
+            }
+            temp->NEXT = dataToInsert;
+        }
+    }
+    // Data is inserted inside a scope table.
+    else{
+        offset = HashFunction(name, GLOBAL_LEN);
+        if(tableAddr->TABLE[offset] == NULL) tableAddr->TABLE[offset] = dataToInsert;
+        else{
+            TableData* temp = tableAddr->TABLE[offset];
+            while(temp->NEXT){
+                temp = temp->NEXT;
+            }
+            temp->NEXT = dataToInsert;
+        }
+    }
+}
+
+TableData* GetTableInstance(char* name, TableData* addr){
+    int offset = 0; 
+    TableData* temp;
+    if(addr == NULL){  
+        offset = HashFunction(name, GLOBAL_LEN);  
+        temp = GLOBAL_SYMBOL_TABLE->TABLE[offset];
+    }
+    else{
+        offset = HashFunction(name, GLOBAL_LEN);
+        temp = addr->TABLE[offset];
+    }
+    while(temp){
+        if(strcmp(name, temp->NAME) == 0) return temp;
+        temp = temp->NEXT;
+    }
+    return NULL;
+}
+
+
+// Function Stack
+int pushToStack(AST_Node* x){
+    printf("pushing=>");
+    StackElement* temp = (StackElement*)malloc(sizeof(StackElement));
+    temp->NODE = x;
+    temp->NEXT = NULL;
+    temp->PREV = STACK_TOP;
+
+    STACK_TOP->NEXT = temp;
+    STACK_TOP = temp;
+    return 0;
+}
+void popFromStack(){
+    printf("popping=>");
+    StackElement* temp = STACK_TOP;
+    if(temp->NODE->TYPE != PROGRAM_NODE){
+        STACK_TOP = STACK_TOP->PREV;
+        STACK_TOP->NEXT = NULL;
+        free(temp);
+    }
+}
+TableData* getStackTop(){
+    switch(STACK_TOP->NODE->TYPE){
+        case PROGRAM_NODE:
+            return STACK_TOP->NODE->NODE.Prog.table;
+            break;
+        case FUNCTION_DECL_NODE:
+            return STACK_TOP->NODE->NODE.Func.table;
+            break;
+        case WHILE_NODE:
+            return STACK_TOP->NODE->NODE.WhileLoop.table;
+            break;
+        case FOR_NODE:
+            return STACK_TOP->NODE->NODE.ForLoop.table;
+            break;
+        case IF_NODE:
+            return STACK_TOP->NODE->NODE.IfBlock.table;
+            break;
+    }
+}
+
+
 // Initialises the BASE_TOKEN and BASE_AST_NODE
 void Set_Up(){
 
     // Assigning initial values to Global variables
     BASE_TOKEN = GiveTok();       // Parent Node of the lexemes
     BASE_AST_NODE = GiveNode();     // Parent Node of the AST
+    GLOBAL_SYMBOL_TABLE = createTableInstance(); // The Global Symbol Table
+    FUNCTION_STACK = (StackElement*)malloc(sizeof(StackElement));    // The primary Stack Element
     FILE_NAME = "test.txt";
-    ERRORS = 0;
 
     //Initialising lexer array
     BASE_TOKEN->type = PROG;
@@ -283,5 +410,21 @@ void Set_Up(){
     BASE_AST_NODE->TYPE = PROGRAM_NODE;
     BASE_AST_NODE->NODE.Prog.head = malloc(strlen(BASE_TOKEN->value)+1);
     strcpy(BASE_AST_NODE->NODE.Prog.head,BASE_TOKEN->value);
+    BASE_AST_NODE->NODE.Prog.table = GLOBAL_SYMBOL_TABLE;
 
+    // Initialising the global symbol table
+    GLOBAL_SYMBOL_TABLE->NAME = "MAIN";
+    GLOBAL_SYMBOL_TABLE->ADDR = BASE_AST_NODE;
+    GLOBAL_SYMBOL_TABLE->NEXT = NULL;
+
+    //Initialising the function stack;
+    FUNCTION_STACK->NODE = BASE_AST_NODE;
+    FUNCTION_STACK->NEXT = NULL;
+    FUNCTION_STACK->PREV = NULL;
+
+    // Pointer, pointing to the top of the stack
+    STACK_TOP = FUNCTION_STACK;
+
+    printf("asas: %d \n", FUNCTION_STACK);
+    printf("asfasfds: %d \n", STACK_TOP);
 }

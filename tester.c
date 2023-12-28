@@ -26,7 +26,10 @@ int main(){
     printf("\nCOMPILER\n");
     printf("BASE_TOKEN addr: %d \n", BASE_TOKEN);
     printf("BASE_AST_NODE addr: %d \n", BASE_AST_NODE);
-    printf("GLOBAL_TABLE addr: %d \n\n", GLOBAL_TABLE_HEAD);
+    printf("GLOBAL_TABLE addr: %d \n", GLOBAL_TABLE_HEAD);
+    printf("INIT_STACK_TOP addr: %d \n", STACK_TOP);
+    printf("FUNCTION_STACK first node: %d \n", FUNCTION_STACK);
+    printf("GLOBAL_SYMBOL_TABLE addr: %d \n\n", GLOBAL_SYMBOL_TABLE);
 
     //Settings:
     int lexer = 1;
@@ -45,7 +48,7 @@ int main(){
         show_tree(0,BASE_AST_NODE);
         //BUILD(BASE_AST_NODE);
         printf(GRN "\nProgram ended with %d errors.\n" RESET,ERRORS);
-        ShowGlobal();
+        // ShowGlobal();
     }
     else{
         printf(RED "\nProgram terminated with %d error(s).\n" RESET,ERRORS);

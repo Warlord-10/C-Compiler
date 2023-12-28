@@ -24,6 +24,19 @@
 #define HASH_LEN 16
 
 
+typedef struct Token Token;
+typedef struct AST_Node AST_Node;
+typedef struct TableData TableData;
+typedef struct StackElement StackElement;
+
+
+// Data Types
+typedef enum data_type{
+    D_TYPE_INT = 4,
+    D_TYPE_CHAR = 4,
+    D_TYPE_VOID = 1
+} D_TYPE;
+
 // Lexer Enums
 typedef enum token_type{
     // Basic Symbols
@@ -56,6 +69,7 @@ typedef enum token_type{
 
     // Data types
     DATA_TYPE,
+    DATA_TYPE_CHAR,
     DATA_TYPE_VOID,
     DATA_TYPE_INT,
 
@@ -100,28 +114,31 @@ typedef enum node_type{
 
 
 // Lexical Tokens (LEXER PART)
-typedef struct Token{
+struct Token{
     TOK_TYPE type;
     char value[32];
     int character,line;
     struct Token *next;
-} Token;
+};
 Token* GiveTok(); 
 void show_tokens(Token* ptr);
 
 
 
 // AST Nodes (PARSER PART)
-typedef struct AST_Node{
+struct AST_Node{
     NODE_TYPE TYPE;
     struct AST_Node* SIBLING;
     union TreeStructure{
         struct Prog{                    // Program
+            TableData* table;
             char* head;
             struct AST_Node* child;
         }Prog;
         struct Func{                    // Function Declaration
+            D_TYPE return_value;
             char* name;
+            TableData* table;
             struct AST_Node* body;
             struct AST_Node* params;
         }Func;
@@ -156,21 +173,24 @@ typedef struct AST_Node{
             int Tok_Value;
         }Const;
         struct Variable{                // Variable Operator
-            // data_type Data_Type;
+            D_TYPE Data_Type;
             char* Tok_Value;                  
         }Variable;
         struct IfBlock{                 // If Statement
+            TableData* table;
             struct AST_Node* cond_block;
             struct AST_Node* stmnt_block;
             struct AST_Node* else_block;
         }IfBlock;
         struct ForLoop{                 // For Loop
+            TableData* table;
             struct AST_Node* init_block;
             struct AST_Node* cond_block;
             struct AST_Node* inc_block;
             struct AST_Node* body;
         }ForLoop;
         struct WhileLoop{               // While Loop
+            TableData* table;
             struct AST_Node* cond_block;
             struct AST_Node* body;
         }WhileLoop;
@@ -178,14 +198,15 @@ typedef struct AST_Node{
             TOK_TYPE kw;
         }Keyword;
     }NODE;
-}AST_Node;
+};
 AST_Node* GiveNode();
-void TakeNode(AST_Node* n);
+void TakeNode(AST_Node** n);
 void show_tree(int indent, AST_Node* ptr);
 
 
 
 // Hash Table
+// The main table is the array of pointers, these are just the rows.
 typedef struct HashTable{
     char* NAME;    // Name of the variable
     int OFFSET;     // Offset from the EBP register
@@ -210,16 +231,50 @@ HashTable* GetHash(HashTable** table, char* name);  // returns from global table
 
 void ShowHash(HashTable** t);
 void ShowGlobal();
+
+
+
+
+// Hash table 2.0
+struct TableData{
+    D_TYPE RETURN_TYPE; // the data type
+    char* NAME;    // name of the function or the variable
+    AST_Node* ADDR;     // pointer to node
+    struct TableData* NEXT;   // only for chaining
+    struct TableData* TABLE[GLOBAL_LEN];   // main lookup table, will only be there if its a function
+};
+TableData* createTableInstance();
+void PutTableInstance(char* t, AST_Node* NodeAddr, TableData* addr);
+TableData* GetTableInstance(char* name, TableData* addr);
+
+
 // Errors
+
+// Function Stack
+struct StackElement{
+    AST_Node* NODE;
+    struct StackElement* NEXT;
+    struct StackElement* PREV;
+};
+int pushToStack(AST_Node* x);
+void popFromStack();
+TableData* getStackTop();
 
 
 
 // Constants Declaration
-extern Token* BASE_TOKEN;       // Parent Node of the lexemes
-extern AST_Node* BASE_AST_NODE;     // Parent Node of the AST
-extern GlobalTable* GLOBAL_TABLE_HEAD[GLOBAL_LEN];  // Pointer to Global Hash Table
 extern char* FILE_NAME;     // Actual file name
 extern int ERRORS;  // Number of errors 
+extern int DEBUG;   // debug variable
+
+extern Token* BASE_TOKEN;       // Parent Node of the lexemes
+extern AST_Node* BASE_AST_NODE;     // Parent Node of the AST
+
+extern GlobalTable* GLOBAL_TABLE_HEAD[GLOBAL_LEN];  // Pointer to Global Hash Table
+extern TableData* GLOBAL_SYMBOL_TABLE; // global symbol table 2.0
+
+extern StackElement* FUNCTION_STACK; // the main function stack
+extern StackElement* STACK_TOP;  // top of the function stack
 
 void Set_Up();  // Initiatilizes the data
 

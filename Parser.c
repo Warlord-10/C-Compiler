@@ -12,10 +12,11 @@ Token CURR_FUNC;    // holds a copy of current function token
 
 
 void Advance(){
-    LAST_TOK = CURR_TOK;
-    CURR_TOK = CURR_TOK->next;
-    
-    free(LAST_TOK);
+    if (CURR_TOK != NULL) {
+        LAST_TOK = CURR_TOK;
+        CURR_TOK = CURR_TOK->next;
+        free(LAST_TOK);
+    }
 }
 void Move_on(){
     while(CURR_TOK->type == S_COLON){
@@ -39,9 +40,10 @@ void Error(char error_desc[],char error_type[]){
 
 
 AST_Node* Function_Call(){
+    if(DEBUG) printf("Function Call called\n");
     // curr tok is <id>
     AST_Node* Node;
-    if(GetGlobal(CURR_TOK->value) == NULL){
+    if(GetTableInstance(CURR_TOK->value, getStackTop()) == NULL){
         Error("Function not defined", "Runtime Error");
         return NULL;
     }
@@ -72,6 +74,7 @@ AST_Node* Function_Call(){
 
 
 AST_Node* Factor(){
+    if(DEBUG) printf("Factor called\n");
     AST_Node* Node;
     if(CURR_TOK->type == L_PAREN){
         Node = Expression();
@@ -109,7 +112,7 @@ AST_Node* Factor(){
             return Node;
         }
         else{
-            if(GetHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value) == NULL){
+            if(GetTableInstance(CURR_TOK->value, getStackTop()) == NULL){
                 Error("Token not defined","Runtime Error");
                 return NULL;
             }
@@ -126,6 +129,7 @@ AST_Node* Factor(){
 }
 
 AST_Node* Term(){
+    if(DEBUG) printf("Term called\n");
     AST_Node* left_term = Factor();
 
     Token* next = Seek();
@@ -160,6 +164,7 @@ AST_Node* Term(){
 }
 
 AST_Node* Additive_Exp(){
+    if(DEBUG) printf("Additive_Exp called\n");
     AST_Node* left_term = Term();
 
     Token* next = Seek();
@@ -194,6 +199,7 @@ AST_Node* Additive_Exp(){
 }
 
 AST_Node* Relational_Exp(){
+    if(DEBUG) printf("Relational_Exp called\n");
     AST_Node* left_term = Additive_Exp();
 
     Token* next = Seek();
@@ -238,6 +244,7 @@ AST_Node* Relational_Exp(){
 }
 
 AST_Node* Equality_Exp(){
+    if(DEBUG) printf("Equality_Exp called\n");
     AST_Node* left_term = Relational_Exp();
 
     Token* next = Seek();
@@ -274,6 +281,7 @@ AST_Node* Equality_Exp(){
 }
 
 AST_Node* Logical_AndExp(){
+    if(DEBUG) printf("Logical_AndExp called\n");
     AST_Node* left_term = Equality_Exp();
 
     Token* next = Seek();
@@ -304,6 +312,7 @@ AST_Node* Logical_AndExp(){
 }
 
 AST_Node* Logical_OrExp(){
+    if(DEBUG) printf("Logical_OrExp called\n");
     AST_Node* left_term = Logical_AndExp();
 
     Token* next = Seek();
@@ -334,6 +343,7 @@ AST_Node* Logical_OrExp(){
 }
 
 AST_Node* Conditional_Exp(){
+    if(DEBUG) printf("Conditional_Exp called\n");
     AST_Node* left_term = Logical_OrExp();
     if(Seek()->type == QUES_MARK){
         AST_Node* right_term = GiveNode();
@@ -350,18 +360,25 @@ AST_Node* Conditional_Exp(){
 }
 
 AST_Node* Expression(){
+    if(DEBUG) printf("Expression called\n");
     AST_Node* left_term = NULL;
     
-    Advance(); // curr tok is <id> or a number, but after it if it is a "=", then go into if block
+    Advance(); // curr tok is <id> or a number but after, if its a "=", then go into if block
     if(Seek()->type == ASN_OP){
         if(CURR_TOK->type != ID){
             Error("Can't assign to constants","Syntax Error");
             return NULL;
         }
-        if(GetHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value) == NULL){
-            Error("Token not declared","Runtime Error");
+        // if(GetHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value) == NULL){
+        //     Error("Token not declared","Runtime Error");
+        //     return NULL;
+        // }
+
+        if(GetTableInstance(CURR_TOK->value, getStackTop()) == NULL){
+            Error("Token not declared. ","Runtime Error");
             return NULL;
         }
+
         left_term = GiveNode();
         left_term->TYPE = ASSIGN_NODE;
         left_term->NODE.AssignOp.var = GiveNode();
@@ -380,6 +397,7 @@ AST_Node* Expression(){
 }
 
 AST_Node* Statement(){
+    if(DEBUG) printf("Statement called\n");
     AST_Node* Node = NULL;
 
     // return node
@@ -416,6 +434,13 @@ AST_Node* Statement(){
             Error("Missing ')' .","Syntax Error");
             return NULL; //error
         }
+
+        TableData* tempTable = createTableInstance();  // creating new table
+        tempTable->ADDR = Node; // defining the ownership
+        Node->NODE.IfBlock.table = tempTable;   // assigning the table to the node
+        PutTableInstance("if-else", Node, getStackTop());   // putting into the topmost symbol table
+        pushToStack(Node);
+
         // Parsing the statements
         Node->NODE.IfBlock.stmnt_block = Statement();
         
@@ -423,7 +448,9 @@ AST_Node* Statement(){
             Advance(); // curr tok is else
             Node->NODE.IfBlock.else_block = Statement();
         }
+        popFromStack();
     }
+
     // For loop 
     else if(Seek()->type == KW_FOR){
         Advance(); // curr tok is "for"
@@ -434,6 +461,13 @@ AST_Node* Statement(){
         Node->NODE.ForLoop.cond_block = NULL;
         Node->NODE.ForLoop.inc_block = NULL;
         Node->NODE.ForLoop.body = NULL;
+
+        TableData* tempTable = createTableInstance();  // creating new table
+        tempTable->ADDR = Node; // defining the ownership
+        Node->NODE.ForLoop.table = tempTable;   // assigning the table to the node
+        PutTableInstance("for-loop", Node, getStackTop());   // putting into the topmost symbol table
+        pushToStack(Node);
+
         if(Seek()->type != S_COLON){
             if(Seek()->type == DATA_TYPE){
                 Node->NODE.ForLoop.init_block = Declaration();
@@ -464,18 +498,30 @@ AST_Node* Statement(){
         }
         Advance(); // curr tok is ")"
         Node->NODE.ForLoop.body = Statement();
-
+        popFromStack();
     }
+
     // While loop
     else if(Seek()->type == KW_WHILE){
         Advance(); // curr tok is while
         Advance(); // curr tok is "("
         Node = GiveNode();
         Node->TYPE = WHILE_NODE;
+        Node->NODE.WhileLoop.body = NULL;
+        Node->NODE.WhileLoop.cond_block = NULL;
+
+        TableData* tempTable = createTableInstance();  // creating new table
+        tempTable->ADDR = Node; // defining the ownership
+        Node->NODE.WhileLoop.table = tempTable;   // assigning the table to the node
+        PutTableInstance("while-loop", Node, getStackTop());   // putting into the topmost symbol table
+        pushToStack(Node);
+
         Node->NODE.WhileLoop.cond_block = Expression();
         Advance(); // curr tok is ")"
         Node->NODE.WhileLoop.body = Statement();
+        popFromStack();
     }
+
     // Block item
     else if(Seek()->type == L_BRACE){
         Advance(); // curr tok is "{"
@@ -494,19 +540,30 @@ AST_Node* Statement(){
             return NULL; //error
         }
     }
+    
     // Do While Loop
     else if(Seek()->type == KW_DO){
         Advance();  // curr tok is "do"
         Node = GiveNode();
         Node->TYPE = DO_WHILE_NODE;
+
+        TableData* tempTable = createTableInstance();  // creating new table
+        tempTable->ADDR = Node; // defining the ownership
+        Node->NODE.WhileLoop.table = tempTable;   // assigning the table to the node
+        PutTableInstance("do-while", Node, getStackTop());   // putting into the topmost symbol table
+        pushToStack(Node);
+
         Node->NODE.WhileLoop.body = Statement();
         Advance();  // curr tok is "while"
         Advance();  // curr tok is "(" 
         Node->NODE.WhileLoop.cond_block = Expression();
         Advance();  // curr tok is ")"
         Advance();  // curr tok is ";"
+
+        popFromStack();
         return Node;
     }
+
     // Break and Continue
     else if(Seek()->type == KW_BREAK || Seek()->type == KW_CONTINUE){
         Advance();  // curr tok is "break"/"continue"
@@ -528,6 +585,7 @@ AST_Node* Statement(){
 }
 
 AST_Node* Declaration(){
+    if(DEBUG) printf("Declaration called\n");
     AST_Node* Node;
     Advance(); // curr tok is int
     Advance(); // curr tok is id
@@ -536,16 +594,21 @@ AST_Node* Declaration(){
         Error("Missing identifier name. ","Syntax Error");
         return NULL; //error
     }
-    if(GetHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value)){
+    if(GetTableInstance(CURR_TOK->value, getStackTop()) != NULL){
         Error("Variable already declared. ","Syntax Error");
         return NULL;
     }
+    // if(GetHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value)){
+    //     Error("Variable already declared. ","Syntax Error");
+    //     return NULL;
+    // }
     Node = GiveNode();
     Node->TYPE = VARIABLE_NODE;
     Node->NODE.Variable.Tok_Value = malloc(strlen(CURR_TOK->value)+1);
     strcpy(Node->NODE.Variable.Tok_Value,CURR_TOK->value);
     
-    PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
+    // PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
+    PutTableInstance(CURR_TOK->value, Node, getStackTop());
 
     if(Seek()->type == ASN_OP){
         // if equal to is present assign the value
@@ -575,6 +638,7 @@ AST_Node* Declaration(){
 }
 
 AST_Node* Block(){
+    if(DEBUG) printf("Block called\n");
     AST_Node* Node = NULL;
     if(Seek()->type == DATA_TYPE){
         Node = Declaration();   
@@ -586,6 +650,7 @@ AST_Node* Block(){
 }
 
 AST_Node* Function(){
+    if(DEBUG) printf("Function called\n");
     Advance();
     if(!CURR_TOK){
         return NULL;
@@ -608,8 +673,13 @@ AST_Node* Function(){
     Node->NODE.Func.name = malloc(strlen(CURR_TOK->value)+1);
     strcpy(Node->NODE.Func.name,CURR_TOK->value);
 
-    CURR_FUNC = *CURR_TOK;
-    PutGlobal(CURR_FUNC.value,Node);
+    // CURR_FUNC = *CURR_TOK;
+    TableData* initTable = createTableInstance(); // creating a symbol table
+    initTable->ADDR = Node; // defining the ownership
+    Node->NODE.Func.table = initTable;  // assigning the symbol table to the new function
+    PutTableInstance(CURR_TOK->value, Node, getStackTop()); // putting into the topmost symbol table
+    pushToStack(Node);  // pushing the function into the stack
+    // PutGlobal(CURR_FUNC.value,Node);
 
     // Parsing the parameters
     Advance();
@@ -624,7 +694,8 @@ AST_Node* Function(){
         AST_Node* iterator = GiveNode();
         iterator->NODE.Variable.Tok_Value = CURR_TOK->value;
         iterator->TYPE = VARIABLE_NODE;
-        PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
+        PutTableInstance(CURR_TOK->value, iterator, getStackTop());
+        // PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
         AST_Node* parameter = iterator;
 
         Token* Next = Seek();
@@ -635,7 +706,8 @@ AST_Node* Function(){
             AST_Node* temp = GiveNode();
             temp->NODE.Variable.Tok_Value = CURR_TOK->value;
             temp->TYPE = VARIABLE_NODE;
-            PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
+            PutTableInstance(CURR_TOK->value, temp, getStackTop());
+            // PutHash(GetGlobal(CURR_FUNC.value)->LOCAL_TABLE,CURR_TOK->value);
             iterator->SIBLING = temp;
             iterator = iterator->SIBLING;
             Next = Seek();
@@ -655,6 +727,7 @@ AST_Node* Function(){
             Error("Missing '{' .","Syntax Error");
             return NULL; //error
         }
+        // if not empty function
         if(Seek()->type != R_BRACE){
             AST_Node* temp = Block();
             AST_Node* Body = temp;
@@ -673,14 +746,16 @@ AST_Node* Function(){
     else{
         Advance(); // curr tok is ";"
     }
-    
-
+    popFromStack();
     Node->SIBLING = Function();
     return Node;
 }
 
+
+
 void PARSER(){
     CURR_TOK = BASE_TOKEN;     //Token array pointer
+    printf("Starting to parse\n");
     
     BASE_AST_NODE->NODE.Prog.child = Function();
     printf(GRN "[PARSER ENDS]\n\n" RESET);
