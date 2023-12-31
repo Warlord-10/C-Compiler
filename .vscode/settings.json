@@ -1,9 +1,0 @@
-{
-    "files.associations": {
-        "type_traits": "c",
-        "string.h": "c",
-        "stdlib.h": "c",
-        "typeinfo": "c",
-        "base.h": "c"
-    }
-}
